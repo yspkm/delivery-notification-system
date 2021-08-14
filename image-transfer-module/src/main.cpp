@@ -7,9 +7,9 @@
 
 #include "esp_camera.h"
 #include "Base64.h"
+
 #include "private_info.h" //Wifi ssid, pwd, api-key, project-url
 #include "device_info.h"  //camera fin, camera model, etc
-
 /**************************global variables***********************************/
 String device_location = "front_door"; // Device Location config
 
@@ -17,30 +17,24 @@ String device_location = "front_door"; // Device Location config
 FirebaseData firebase_data;     // Firebase Realtime Database Object
 FirebaseAuth firebase_auth;     // Firebase Authentication Object
 FirebaseConfig firebase_config; // Firebase configuration Object
+camera_config_t cam_config;
 
-String database_path = ""; // Firebase database path
-String fuid = "";          // Firebase Unique Identifier
+String database_path = "";             // Firebase database path
+String fuid = "";                      // Firebase Unique Identifier
+unsigned long elapsed_millis = 0;      // Stores the elapsed time from device start up
+unsigned long update_interval = 10000; // The frequency of sensor updates to firebase, set to 10seconds
+int count = 0;                         // Dummy counter to test initial firebase updates
 
-bool is_authenticated = false;         // Store device authentication status
+boolean is_authenticated = false; // Store device authentication status
+boolean is_motion_detected = false;
+boolean is_light_detected = false;
 /*****************************************************************************/
 
-/*int main(void)**************************************************************/
-/*{***************************************************************************/
-void setup()
-{
-  Serial.begin(115200); // Initialize serial port for diagnosis
-
-
-  wifiInit();        // Initialize Connection with location WiFi
-  firebaseInit();    // Initialise firebase configuration and signup anonymously
-  setCameraConfig(); // Initialise OV2640 camera module
-}
-
-void loop()
-{
-  delay(10000);
-}
-/*}***************************************************************************/
+/**************************pin number ****************************************/
+const int motion_pin = GPIO_NUM_14;
+const int phr_pin = GPIO_NUM_15;
+const int led_pin = 4;
+/*****************************************************************************/
 
 /***************user-defined function*****************************************/
 //camera instruction
@@ -63,7 +57,6 @@ String photo2Base64(camera_fb_t *cam_fb)
 
 void setCameraConfig(void)
 {
-  camera_config_t cam_config;
 
   cam_config.ledc_channel = LEDC_CHANNEL_0;
   cam_config.ledc_timer = LEDC_TIMER_0;
@@ -86,19 +79,22 @@ void setCameraConfig(void)
   cam_config.xclk_freq_hz = 20000000;
   cam_config.pixel_format = PIXFORMAT_JPEG;
 
-  if (psramFound()) { // PSRAM found-> upgrade frame size
+  if (psramFound())
+  { // PSRAM found-> upgrade frame size
     cam_config.frame_size = FRAMESIZE_UXGA;
     cam_config.jpeg_quality = 10;
     cam_config.fb_count = 2;
   }
-  else {
+  else
+  {
     cam_config.frame_size = FRAMESIZE_SVGA;
     cam_config.jpeg_quality = 12;
     cam_config.fb_count = 1;
   }
 
   esp_err_t err = esp_camera_init(&cam_config);
-  if (err != ESP_OK) {
+  if (err != ESP_OK)
+  {
     Serial.printf("Camera init failed with error 0x%x", err);
     return;
   }
@@ -111,7 +107,8 @@ void wifiInit()
 {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
     Serial.print(".");
     delay(300);
   }
@@ -131,12 +128,15 @@ void firebaseInit()
   Serial.println("------------------------------------");
   Serial.println("Sign up new user...");
 
-  if (Firebase.signUp(&firebase_config, &firebase_auth, "", "")) { // Sign in to firebase
+  if (Firebase.signUp(&firebase_config, &firebase_auth, "", ""))
+  { // Sign in to firebase
     Serial.println("Success");
     is_authenticated = true;
     database_path = "/" + device_location; // Set the database path where updates will be loaded for this device
     fuid = firebase_auth.token.uid.c_str();
-  } else {
+  }
+  else
+  {
     Serial.printf("Failed, %s\n", firebase_config.signer.signupError.message.c_str());
     is_authenticated = false;
   }
@@ -144,7 +144,31 @@ void firebaseInit()
   firebase_config.token_status_callback = tokenStatusCallback; // Assign the callback function for the long running token generation task, see addons/TokenHelper.h
   Firebase.begin(&firebase_config, &firebase_auth);            // Initialise the firebase library
 }
-
+void sendMotionSignalToFirebase(boolean signal)
+{
+  String path = database_path + "/motion_signal";
+  if (millis() - elapsed_millis > update_interval && is_authenticated && Firebase.ready())
+  {
+    if (Firebase.set(firebase_data, path.c_str(), (int)signal))
+    {
+      Serial.println("PASSED");
+      Serial.println("PATH: " + firebase_data.dataPath());
+      Serial.println("TYPE: " + firebase_data.dataType());
+      Serial.println("ETag: " + firebase_data.ETag());
+      Serial.print("VALUE: ");
+      printResult(firebase_data); //see addons/RTDBHelper.h
+      Serial.println("------------------------------------");
+      Serial.println();
+    }
+    else
+    {
+      Serial.println("FAILED");
+      Serial.println("REASON: " + firebase_data.errorReason());
+      Serial.println("------------------------------------");
+      Serial.println();
+    }
+  }
+}
 // test function
 void getPhotoThenSendToFirebase(void)
 {
@@ -152,20 +176,66 @@ void getPhotoThenSendToFirebase(void)
   camera_fb_t *cam_fb = NULL;
 
   cam_fb = esp_camera_fb_get();
-  if (Firebase.setString(firebase_data, path.c_str(), photo2Base64(cam_fb))) {
-    Serial.println("PASSED");
-    Serial.println("PATH: " + firebase_data.dataPath());
-    Serial.println("TYPE: " + firebase_data.dataType());
-    Serial.println("ETag: " + firebase_data.ETag());
-    Serial.print("VALUE: ");
-    printResult(firebase_data); //see addons/RTDBHelper.h
-    Serial.println("------------------------------------");
-    Serial.println();
-  } else {
-    Serial.println("FAILED");
-    Serial.println("REASON: " + firebase_data.errorReason());
-    Serial.println("------------------------------------");
-    Serial.println();
+  if (millis() - elapsed_millis > update_interval && is_authenticated && Firebase.ready())
+  {
+    if (Firebase.setString(firebase_data, path.c_str(), photo2Base64(cam_fb)))
+    {
+      Serial.println("PASSED");
+      Serial.println("PATH: " + firebase_data.dataPath());
+      Serial.println("TYPE: " + firebase_data.dataType());
+      Serial.println("ETag: " + firebase_data.ETag());
+      Serial.print("VALUE: ");
+      printResult(firebase_data); //see addons/RTDBHelper.h
+      Serial.println("------------------------------------");
+      Serial.println();
     }
+    else
+    {
+      Serial.println("FAILED");
+      Serial.println("REASON: " + firebase_data.errorReason());
+      Serial.println("------------------------------------");
+      Serial.println();
+    }
+  }
 }
+
 /*****************************************************************************/
+
+void setup()
+{
+  Serial.begin(115200); // Initialize serial port for diagnosis
+
+  // Set pinmode
+  pinMode(motion_pin, INPUT);
+  pinMode(phr_pin, INPUT);
+  pinMode(led_pin, OUTPUT);
+
+  wifiInit();        // Initialize Connection with location WiFi
+  firebaseInit();    // Initialise firebase configuration and signup anonymously
+  setCameraConfig(); // Initialise OV2640 camera module
+}
+
+void loop()
+{
+  is_motion_detected = false;
+  is_light_detected = false;
+
+  is_motion_detected = digitalRead(motion_pin);
+  sendMotionSignalToFirebase(is_motion_detected);
+  if (is_motion_detected)
+  {
+    if (Serial.available())
+      Serial.println("motion detected");
+    is_light_detected = digitalRead(phr_pin);
+    if (!is_light_detected)
+    {
+      if (Serial.available())
+        Serial.println("motion detected");
+      digitalWrite(led_pin, HIGH);
+    }
+    getPhotoThenSendToFirebase();
+  }
+  digitalWrite(led_pin, LOW);
+  delay(1000);
+}
+/*}***************************************************************************/
