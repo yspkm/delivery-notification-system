@@ -12,6 +12,10 @@
 #include "device_info.h"  //camera fin, camera model, etc
 /**************************global variables***********************************/
 String device_location = "front_door"; // Device Location config
+String database_path = "";             // Firebase database path
+String photo_path = "";
+String signal_path = "";
+String photo_data = "";
 
 /*Data Objects*/
 FirebaseData firebase_data;     // Firebase Realtime Database Object
@@ -19,7 +23,6 @@ FirebaseAuth firebase_auth;     // Firebase Authentication Object
 FirebaseConfig firebase_config; // Firebase configuration Object
 camera_config_t cam_config;
 
-String database_path = "";             // Firebase database path
 String fuid = "";                      // Firebase Unique Identifier
 unsigned long elapsed_millis = 0;      // Stores the elapsed time from device start up
 unsigned long update_interval = 10000; // The frequency of sensor updates to firebase, set to 10seconds
@@ -37,9 +40,10 @@ const int builtin_led = BUILTIN_LED;
 
 /***************user-defined function*****************************************/
 //camera instruction
-String photo2Base64(camera_fb_t *cam_fb)
+void photo2Base64(camera_fb_t *cam_fb)
 {
-  String ret = "data:image/jpeg;base64,"; // image file - for JSON tree
+  photo_data.clear();
+  photo_data.concat("data:image/jpeg;base64,"); // image file - for JSON tree
 
   char *input = (char *)cam_fb->buf;
   char output[base64_enc_len(3)];
@@ -48,10 +52,9 @@ String photo2Base64(camera_fb_t *cam_fb)
   {
     base64_encode(output, (input++), 3);
     if (i % 3 == 0)
-      ret += String(output);
+      photo_data.concat(String(output));
   }
-  ret += String(output);
-  return ret;
+  photo_data.concat(String(output));
 }
 
 void setCameraConfig(void)
@@ -99,7 +102,7 @@ void setCameraConfig(void)
   }
 
   sensor_t *s = esp_camera_sensor_get();
-  s->set_framesize(s, FRAMESIZE_QVGA);
+  s->set_framesize(s, FRAMESIZE_HVGA);
 }
 
 void wifiInit()
@@ -131,7 +134,6 @@ void firebaseInit()
   { // Sign in to firebase
     Serial.println("Success");
     is_authenticated = true;
-    database_path = "/" + device_location; // Set the database path where updates will be loaded for this device
     fuid = firebase_auth.token.uid.c_str();
   }
   else
@@ -146,10 +148,9 @@ void firebaseInit()
 
 void sendMotionSignalToFirebase(boolean signal)
 {
-  String path = database_path + "/motion_signal";
   if (is_authenticated && Firebase.ready())
   {
-    if (Firebase.set(firebase_data, path.c_str(), (int)signal))
+    if (Firebase.set(firebase_data, signal_path.c_str(), (int)signal))
     {
       Serial.println("PASSED");
       Serial.println("PATH: " + firebase_data.dataPath());
@@ -171,13 +172,14 @@ void sendMotionSignalToFirebase(boolean signal)
 }
 void getPhotoThenSendToFirebase(void)
 {
-  String path = database_path + "/front_door_image";
   camera_fb_t *cam_fb = NULL;
-
   cam_fb = esp_camera_fb_get();
+
+  photo2Base64(cam_fb);
+
   if (is_authenticated && Firebase.ready())
   {
-    if (Firebase.setString(firebase_data, path.c_str(), photo2Base64(cam_fb)))
+    if (Firebase.setString(firebase_data, photo_path.c_str(), photo_data))
     {
       Serial.println("PASSED");
       Serial.println("PATH: " + firebase_data.dataPath());
@@ -196,13 +198,18 @@ void getPhotoThenSendToFirebase(void)
       Serial.println();
     }
   }
+
+  photo_data.clear();
   esp_camera_fb_return(cam_fb); //free memory
 }
 
 /*****************************************************************************/
 void setup()
 {
-  Serial.begin(115200); // Initialize serial port for diagnosis
+  Serial.begin(115200);                  // Initialize serial port for diagnosis
+  database_path = "/" + device_location; // Set the database path where updates will be loaded for this device
+  photo_path = database_path + "/imgdata";
+  signal_path = database_path + "/sgndata";
 
   // Set pinmode
   pinMode(motion_pin, INPUT);
