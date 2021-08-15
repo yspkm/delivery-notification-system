@@ -32,8 +32,7 @@ boolean is_light_detected = false;
 
 /**************************pin number ****************************************/
 const int motion_pin = GPIO_NUM_14;
-const int phr_pin = GPIO_NUM_15;
-const int led_pin = 4;
+const int builtin_led = BUILTIN_LED;
 /*****************************************************************************/
 
 /***************user-defined function*****************************************/
@@ -144,10 +143,11 @@ void firebaseInit()
   firebase_config.token_status_callback = tokenStatusCallback; // Assign the callback function for the long running token generation task, see addons/TokenHelper.h
   Firebase.begin(&firebase_config, &firebase_auth);            // Initialise the firebase library
 }
+
 void sendMotionSignalToFirebase(boolean signal)
 {
   String path = database_path + "/motion_signal";
-  if (millis() - elapsed_millis > update_interval && is_authenticated && Firebase.ready())
+  if (is_authenticated && Firebase.ready())
   {
     if (Firebase.set(firebase_data, path.c_str(), (int)signal))
     {
@@ -169,14 +169,13 @@ void sendMotionSignalToFirebase(boolean signal)
     }
   }
 }
-// test function
 void getPhotoThenSendToFirebase(void)
 {
   String path = database_path + "/front_door_image";
   camera_fb_t *cam_fb = NULL;
 
   cam_fb = esp_camera_fb_get();
-  if (millis() - elapsed_millis > update_interval && is_authenticated && Firebase.ready())
+  if (is_authenticated && Firebase.ready())
   {
     if (Firebase.setString(firebase_data, path.c_str(), photo2Base64(cam_fb)))
     {
@@ -197,18 +196,17 @@ void getPhotoThenSendToFirebase(void)
       Serial.println();
     }
   }
+  esp_camera_fb_return(cam_fb); //free memory
 }
 
 /*****************************************************************************/
-
 void setup()
 {
   Serial.begin(115200); // Initialize serial port for diagnosis
 
   // Set pinmode
   pinMode(motion_pin, INPUT);
-  pinMode(phr_pin, INPUT);
-  pinMode(led_pin, OUTPUT);
+  pinMode(builtin_led, OUTPUT);
 
   wifiInit();        // Initialize Connection with location WiFi
   firebaseInit();    // Initialise firebase configuration and signup anonymously
@@ -218,24 +216,17 @@ void setup()
 void loop()
 {
   is_motion_detected = false;
-  is_light_detected = false;
+  is_light_detected = true;
 
   is_motion_detected = digitalRead(motion_pin);
   sendMotionSignalToFirebase(is_motion_detected);
   if (is_motion_detected)
   {
-    if (Serial.available())
-      Serial.println("motion detected");
-    is_light_detected = digitalRead(phr_pin);
-    if (!is_light_detected)
-    {
-      if (Serial.available())
-        Serial.println("motion detected");
-      digitalWrite(led_pin, HIGH);
-    }
+    Serial.println("motion detected");
+    digitalWrite(builtin_led, HIGH);
     getPhotoThenSendToFirebase();
+    digitalWrite(builtin_led, LOW);
   }
-  digitalWrite(led_pin, LOW);
-  delay(1000);
+  delay(100);
 }
 /*}***************************************************************************/
