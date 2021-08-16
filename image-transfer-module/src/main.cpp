@@ -24,9 +24,6 @@ FirebaseConfig firebase_config; // Firebase configuration Object
 camera_config_t cam_config;
 
 String fuid = "";                      // Firebase Unique Identifier
-unsigned long elapsed_millis = 0;      // Stores the elapsed time from device start up
-unsigned long update_interval = 10000; // The frequency of sensor updates to firebase, set to 10seconds
-int count = 0;                         // Dummy counter to test initial firebase updates
 
 boolean is_authenticated = false; // Store device authentication status
 boolean is_motion_detected = false;
@@ -57,7 +54,7 @@ void photo2Base64(camera_fb_t *cam_fb)
   photo_data.concat(String(output));
 }
 
-void setCameraConfig(void)
+bool cameraInit(void)
 {
 
   cam_config.ledc_channel = LEDC_CHANNEL_0;
@@ -80,32 +77,22 @@ void setCameraConfig(void)
   cam_config.pin_reset = RESET_GPIO_NUM;
   cam_config.xclk_freq_hz = 20000000;
   cam_config.pixel_format = PIXFORMAT_JPEG;
-
-  if (psramFound())
-  { // PSRAM found-> upgrade frame size
-    cam_config.frame_size = FRAMESIZE_UXGA;
-    cam_config.jpeg_quality = 10;
-    cam_config.fb_count = 2;
-  }
-  else
-  {
-    cam_config.frame_size = FRAMESIZE_SVGA;
-    cam_config.jpeg_quality = 12;
-    cam_config.fb_count = 1;
-  }
-
+  // ESP32-CAM AI-Thinker has PSRAM
+  cam_config.frame_size = FRAMESIZE_UXGA;
+  cam_config.jpeg_quality = 10;
+  cam_config.fb_count = 2;
   esp_err_t err = esp_camera_init(&cam_config);
   if (err != ESP_OK)
   {
-    Serial.printf("Camera init failed with error 0x%x", err);
-    return;
+    Serial.printf("cameraInit() failed with error 0x%x", err);
+    return false;
   }
-
   sensor_t *s = esp_camera_sensor_get();
-  s->set_framesize(s, FRAMESIZE_HVGA);
+  s->set_framesize(s, FRAMESIZE_VGA);
+  return true;
 }
 
-void wifiInit()
+void wifiInit(void)
 {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
@@ -128,7 +115,7 @@ void firebaseInit()
   Firebase.reconnectWiFi(true);                // Enable WiFi reconnection
 
   Serial.println("------------------------------------");
-  Serial.println("Sign up new user...");
+  Serial.println("Connecting to Firebase...");
 
   if (Firebase.signUp(&firebase_config, &firebase_auth, "", ""))
   { // Sign in to firebase
@@ -186,7 +173,8 @@ void getPhotoThenSendToFirebase(void)
       Serial.println("TYPE: " + firebase_data.dataType());
       Serial.println("ETag: " + firebase_data.ETag());
       Serial.print("VALUE: ");
-      printResult(firebase_data); //see addons/RTDBHelper.h
+      Serial.println("complete");
+      //printResult(firebase_data); //see addons/RTDBHelper.h
       Serial.println("------------------------------------");
       Serial.println();
     }
@@ -217,7 +205,7 @@ void setup()
 
   wifiInit();        // Initialize Connection with location WiFi
   firebaseInit();    // Initialise firebase configuration and signup anonymously
-  setCameraConfig(); // Initialise OV2640 camera module
+  cameraInit(); // Initialise OV2640 camera module
 }
 
 void loop()
