@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <SoftwareSerial.h>
-#include <string.h>
 
 #define DELIVERY          "delivery"  //e.g. "delivery, start, 1, 45" 
 #define DELIVERY_START    "start"  
