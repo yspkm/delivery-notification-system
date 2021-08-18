@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <SoftwareSerial.h>
+#include <LiquidCrystal_I2C.h>
 
 #define DELIVERY          "delivery"  //e.g. "delivery, start, 1, 45" 
 #define DELIVERY_START    "start"  
@@ -13,7 +14,13 @@
 #define BUZZER_ONOFF_OFF  "off"
 #define BUZZER_LEVEL      "level" //1 ~ 3 , e.g. "buzzer, level, 1, " //default level is 1
 
-typedef enum _EBuzzerLevel {LEVEL1, LEVEL2, LEVEL3} BuzzerLevel;
+typedef enum _EBuzzerLevel {
+  LEVEL0, LEVEL1, LEVEL2, LEVEL3
+} BuzzerLevel;
+
+typedef enum _EBuzzerScale {
+  C_4=262, CS_4=277, D_4=294, DS_4=311, E_4=330, F_4=349, FS_4=370, G_4=392, GS_4=415, A_4=440, AS_4=466, B_4=494
+} BuzzerScale;
 
 #define LCD               "lcd"
 #define LCD_ARVTIME       "time"
@@ -25,12 +32,19 @@ const byte lcd_scl_pin = 5;
 const byte relay_pin[2] = {6, 7};
 const byte buzzer_pin = 8;
 
-SoftwareSerial bt_serial(bt_rx_pin, bt_tx_pin);
+const byte lcd_adrr = 0x27;
+const byte lcd_col = 20;
+const byte lcd_row = 4;
+
+SoftwareSerial bt_serial(bt_tx_pin, bt_rx_pin);
+LiquidCrystal_I2C lcd(lcd_adrr, lcd_col, lcd_row) ;
+
 String received_str = "";
 String module="", item="", value1="", value2="";
 
 
 BuzzerLevel buzzer_level = LEVEL1;
+BuzzerScale buzzer_scale = A_4;
 
 void parseString(void) 
 {
@@ -50,21 +64,76 @@ void setBuzzerLevel(BuzzerLevel level)
   buzzer_level = level;
 }
 
+void setBuzzerScale(BuzzerScale scale)
+{
+  buzzer_scale = scale;
+}
+
+void buzzerOn(byte buzzer_pin, int freq, int dur_time, int iter_num, BuzzerScale scale)
+{
+  for (;iter_num > 0; iter_num--) {
+    tone(buzzer_pin, scale, dur_time);
+  }
+}
+
 void turnOnBuzzer(void) 
 {
   //Buzzer noise occurs at different levels of volume
-  //level1 is turn off
+  //level0 is mute
+  if(buzzer_level == LEVEL0) {
+    digitalWrite(buzzer_pin, LOW);
+  } else if (buzzer_level == LEVEL1) {
+    digitalWrite(relay_pin[0], HIGH);
+    digitalWrite(buzzer_pin, HIGH);
+  } else if (buzzer_level == LEVEL2) {
+    digitalWrite(relay_pin[0], LOW);
+    digitalWrite(relay_pin[1], HIGH);
+    digitalWrite(buzzer_pin, HIGH);
+  } else if (buzzer_level == LEVEL3) {
+    digitalWrite(relay_pin[0], LOW);
+    digitalWrite(relay_pin[1], LOW);
+    digitalWrite(buzzer_pin, HIGH);
+  } else {
+    Serial.println("buzzer level error");
+  }
+}
+
+void turnOnBuzzerAtLevel(BuzzerLevel level)
+{
+  setBuzzerLevel(level);
+  turnOnBuzzer();
 }
 
 void setup() {
   Serial.begin(9600); //진단용
   bt_serial.begin(9600); //블루투스통신을 직렬통신으로 바꿔렬
+  lcd.init();
+  lcd.init();
+  lcd.backlight();
+  pinMode(relay_pin[0], OUTPUT);
+  pinMode(relay_pin[1], OUTPUT);
+  pinMode(buzzer_pin, OUTPUT);
 }
 
 void loop() {
-  if(bt_serial.available()) {
+   if(bt_serial.available()) {
+    //received_str = bt_serial.readStringUntil('\n');
     received_str = bt_serial.readString();
-    parseString();
+    //parseString();
+    lcd.clear();
+    lcd.clear();
+    lcd.setCursor(0,0);
+    if(received_str.equals("level0")) {
+      turnOnBuzzerAtLevel(LEVEL0);
+    } else if (received_str.equals("level1")) {
+      turnOnBuzzerAtLevel(LEVEL1);
+    } else if (received_str.equals("level2")) {
+      turnOnBuzzerAtLevel(LEVEL2);
+    } else if (received_str.equals("level3")) {
+      turnOnBuzzerAtLevel(LEVEL3);
+    }
+    lcd.println(received_str);
+    /*
     if (module.equals(DELIVERY)) {
       if (item.equals(DELIVERY_START)) {
        //배달 시작에 관한  
@@ -89,7 +158,8 @@ void loop() {
     if(received_str.equals(DELIVERY)) {
 
     }
+    */
   } else {
     Serial.println("bluetooth error");
-  }
+   }
 }
