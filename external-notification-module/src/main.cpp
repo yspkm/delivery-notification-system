@@ -45,6 +45,7 @@ String received_str = "";
 String header_module = "", header_item = "", header_value = "";
 String time_form_str = ""; 
 uint16_t arrv_time = 0;
+uint8_t last_minute = 0;
 BuzzerLevel buzzer_level = LEVEL1;
 
 void parseString(void)
@@ -150,7 +151,6 @@ void lcdPrintStatus(LcdControl lcd_control)
    */
   switch(lcd_control) {
     case LCDINIT:
-
       lcd.setCursor(0, 0); // setCursor(col, row) 
       getTimeFormStringNow();
       lcd.print("NOW:" + time_form_str); // Display Current Time
@@ -163,7 +163,8 @@ void lcdPrintStatus(LcdControl lcd_control)
     case TIME_NOW_LINE0:
       lcd.setCursor(0, 0);  
       getTimeFormStringNow();
-      lcd.print(time_form_str); // Display Current Time
+      last_minute = rtc.GetDateTime().Minute(); 
+      lcd.print("NOW:" + time_form_str); // Display Current Time
       break;
     case MOTION_LINE2:
       lcd.setCursor(0, 2);
@@ -214,6 +215,13 @@ void initRtc(void)
     }
 }
 
+void updateTime() 
+{
+  if (rtc.GetDateTime().Minute() != last_minute) {
+    lcdPrintStatus(TIME_NOW_LINE0);
+  }
+} 
+
 void setup()
 {
   Serial.begin(9600);    // For local diagnostics
@@ -224,6 +232,7 @@ void setup()
   pinMode(relay_pin[0], OUTPUT);
   pinMode(relay_pin[1], OUTPUT);
   pinMode(buzzer_pin, OUTPUT);
+  lcdPrintStatus(TIME_NOW_LINE0);
 }
 
 void loop()
@@ -240,6 +249,7 @@ void loop()
     if (header_module.equals("delivery")) {
       //1.1 Delivery Start
       if (header_item.equals("start")) { 
+        pinMode(buzzer_pin, LOW);
         arrv_time = header_value.toInt();
         lcdPrintStatus(LCDINIT);
       }
@@ -275,4 +285,5 @@ void loop()
   } else {
     Serial.println("bluetooth error");
   }
+  updateTime();
 }
