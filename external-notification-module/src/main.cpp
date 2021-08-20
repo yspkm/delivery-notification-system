@@ -1,29 +1,24 @@
 #include <Arduino.h>
 #include <SoftwareSerial.h>
 #include <LiquidCrystal_I2C.h>
+#include <ThreeWire.h>
+#include <RtcDateTime.h>
+#include <RtcDS1302.h>
 
-#define DELIVERY          "delivery"  //e.g. "delivery, start, 1, 45" 
-#define DELIVERY_START    "start"  
-#define DELIVERY_END      "end"       //e.g. "delivery, end, 1"
-
-#define MOTION            "motion" //e.g. "signal, motion, , "
-
-#define BUZZER            "buzzer" //e.g. "buzzer, on/off, on, "
-#define BUZZER_ONOFF      "on/off"
-#define BUZZER_ONOFF_ON   "on"
-#define BUZZER_ONOFF_OFF  "off"
-#define BUZZER_LEVEL      "level" //1 ~ 3 , e.g. "buzzer, level, 1, " //default level is 1
+typedef enum _ELcdControl {
+  TIME_NOW_LINE0,
+  TIME_ARRV_LINE1,
+  MOTION_LINE2,
+  DELIVERY_END_LINE3,
+  LCDINIT
+} LcdControl;
 
 typedef enum _EBuzzerLevel {
-  LEVEL0, LEVEL1, LEVEL2, LEVEL3
+  LEVEL0,
+  LEVEL1,
+  LEVEL2,
+  LEVEL3
 } BuzzerLevel;
-
-typedef enum _EBuzzerScale {
-  C_4=262, CS_4=277, D_4=294, DS_4=311, E_4=330, F_4=349, FS_4=370, G_4=392, GS_4=415, A_4=440, AS_4=466, B_4=494
-} BuzzerScale;
-
-#define LCD               "lcd"
-#define LCD_ARVTIME       "time"
 
 const byte bt_rx_pin = 2;
 const byte bt_tx_pin = 3;
@@ -36,27 +31,38 @@ const byte lcd_adrr = 0x27;
 const byte lcd_col = 20;
 const byte lcd_row = 4;
 
-SoftwareSerial bt_serial(bt_tx_pin, bt_rx_pin);
-LiquidCrystal_I2C lcd(lcd_adrr, lcd_col, lcd_row) ;
+const byte rtc_clk_pin = 9;
+const byte rtc_dat_pin = 10;
+const byte rtc_rst_pin = 11;
+
+SoftwareSerial bt_serial(bt_rx_pin, bt_tx_pin);
+LiquidCrystal_I2C lcd(lcd_adrr, lcd_col, lcd_row);
+//ThreeWire(uint8_t ioPin /*dat_pin*/, uint8_t clkPin/*clk_pin*/, uint8_t cePin/*rst_pin*/) : 
+ThreeWire rtc_wire(rtc_dat_pin, rtc_clk_pin, rtc_rst_pin);
+RtcDS1302<ThreeWire> rtc(rtc_wire);
 
 String received_str = "";
-String module="", item="", value1="", value2="";
-
-
+String header_module = "", header_item = "", header_value = "";
+String time_form_str = ""; 
+uint16_t arrv_time = 0;
 BuzzerLevel buzzer_level = LEVEL1;
-BuzzerScale buzzer_scale = A_4;
 
-void parseString(void) 
+void parseString(void)
 {
-      byte ind1 = received_str.indexOf(',');            //finds location of ','
-      byte ind2 = received_str.indexOf(',', ind1+1 );   
-      byte ind3 = received_str.indexOf(',', ind2+1 );
-      byte ind4 = received_str.indexOf(',', ind3+1 );
+  byte idx_module = received_str.indexOf(','); //finds location of ','
+  byte idx_item = received_str.indexOf(',', idx_module + 1);
 
-      module = received_str.substring(0, ind1);         //module name
-      item = received_str.substring(ind1+1, ind2+1);   //item name
-      value1 = received_str.substring(ind2+1, ind3+1); // value 1
-      value2 = received_str.substring(ind3+1);         //value 2
+  header_module = received_str.substring(0, idx_module);           //module name
+  header_item = received_str.substring(idx_module + 1, idx_item);  //item name
+  header_value = received_str.substring(idx_item + 1, received_str.length()); // value
+
+  header_module.replace(',', ' ');
+  header_item.replace(',', ' ');
+  header_value.replace(',', ' ');
+
+  header_module.trim();
+  header_item.trim();
+  header_value.trim();
 }
 
 void setBuzzerLevel(BuzzerLevel level)
@@ -64,37 +70,111 @@ void setBuzzerLevel(BuzzerLevel level)
   buzzer_level = level;
 }
 
-void setBuzzerScale(BuzzerScale scale)
-{
-  buzzer_scale = scale;
-}
-
-void buzzerOn(byte buzzer_pin, int freq, int dur_time, int iter_num, BuzzerScale scale)
-{
-  for (;iter_num > 0; iter_num--) {
-    tone(buzzer_pin, scale, dur_time);
-  }
-}
-
-void turnOnBuzzer(void) 
+void turnOnBuzzer(void)
 {
   //Buzzer noise occurs at different levels of volume
   //level0 is mute
-  if(buzzer_level == LEVEL0) {
+  if (buzzer_level == LEVEL0)
+  {
     digitalWrite(buzzer_pin, LOW);
-  } else if (buzzer_level == LEVEL1) {
+  }
+  else if (buzzer_level == LEVEL1)
+  {
     digitalWrite(relay_pin[0], HIGH);
     digitalWrite(buzzer_pin, HIGH);
-  } else if (buzzer_level == LEVEL2) {
+  }
+  else if (buzzer_level == LEVEL2)
+  {
     digitalWrite(relay_pin[0], LOW);
     digitalWrite(relay_pin[1], HIGH);
     digitalWrite(buzzer_pin, HIGH);
-  } else if (buzzer_level == LEVEL3) {
+  }
+  else if (buzzer_level == LEVEL3)
+  {
     digitalWrite(relay_pin[0], LOW);
     digitalWrite(relay_pin[1], LOW);
     digitalWrite(buzzer_pin, HIGH);
-  } else {
+  }
+  else
+  {
     Serial.println("buzzer level error");
+  }
+}
+
+void getTimeNow(uint16_t *hour, uint16_t *min, uint16_t *day, uint16_t *month, uint16_t *year)
+{
+  RtcDateTime date_time = rtc.GetDateTime();
+  *hour = date_time.Hour();
+  *min = date_time.Minute();
+  *day = date_time.Day();
+  *month = date_time.Month();
+  *year = date_time.Year();
+}
+
+void getTimeFormString(uint16_t hour, uint16_t min, uint16_t day, uint16_t month, uint16_t year)
+{
+  char* time_fstr = NULL;
+  time_fstr = (char*) malloc(18 * sizeof(char));
+  sprintf(time_fstr, "%02u:%02u|%4u-%02u-%02u", hour, min, year, month, day);
+  time_form_str = String(time_fstr);
+  Serial.println("time is: " + time_form_str);
+  free(time_fstr);
+}
+
+void getTimeFormStringNow(void) 
+{
+  uint16_t hour,  min,  day,  month, year;
+  getTimeNow(&hour, &min, &day, &month, &year);
+  getTimeFormString(hour,  min,  day,  month, year);
+}
+
+void getTimeFormStringArrv(uint16_t arrv_minute)
+{
+  uint16_t min_new, hour_new;
+  uint16_t hour,  min,  day,  month, year;
+  getTimeNow(&hour, &min, &day, &month, &year);
+  min += arrv_minute;
+  min_new = min % 60;
+  hour_new = hour + (min / 60);
+  getTimeFormString(hour_new,  min_new, day, month, year);
+}
+
+void lcdPrintStatus(LcdControl lcd_control)
+{
+  /* LCD Display
+  LCD Display Example
+  NOW:08:15|2021-08-21
+  EXP:08:45|2021-08-21
+  MOTION DETECTED!
+  DELIVERY COMPLETE!!!
+   */
+  switch(lcd_control) {
+    case LCDINIT:
+
+      lcd.setCursor(0, 0); // setCursor(col, row) 
+      getTimeFormStringNow();
+      lcd.print("NOW:" + time_form_str); // Display Current Time
+      lcd.setCursor(0, 1);   
+      getTimeFormStringArrv(arrv_time);
+      lcd.print("EXP:" + time_form_str); // Display estimated arrival time
+      lcd.setCursor(0, 2);   
+      lcd.print("MOTION CHECKING..."); // Display if motion is detected
+      break;
+    case TIME_NOW_LINE0:
+      lcd.setCursor(0, 0);  
+      getTimeFormStringNow();
+      lcd.print(time_form_str); // Display Current Time
+      break;
+    case MOTION_LINE2:
+      lcd.setCursor(0, 2);
+      lcd.print("MOTION DETECTED!!"); // Motion Detection Notification
+      break;
+    case DELIVERY_END_LINE3:
+      lcd.setCursor(0, 3);      
+      lcd.print("DELIVERY COMPLETE!!"); // Delivery End Notification
+      break;
+    default:
+      Serial.println("error: lcd control");
   }
 }
 
@@ -104,10 +184,41 @@ void turnOnBuzzerAtLevel(BuzzerLevel level)
   turnOnBuzzer();
 }
 
-void setup() {
-  Serial.begin(9600); //진단용
-  bt_serial.begin(9600); //블루투스통신을 직렬통신으로 바꿔렬
-  lcd.init();
+void initRtc(void) 
+{
+    Serial.print("compiled: ");
+    Serial.print(__DATE__);
+    Serial.println(__TIME__);
+    rtc.Begin();
+    RtcDateTime compiled_date_time = RtcDateTime(__DATE__, __TIME__);
+    
+    if (rtc.GetIsWriteProtected()) {
+        Serial.println("RTC was write protected, enabling writing now");
+        rtc.SetIsWriteProtected(false);
+    } 
+    
+    if (!rtc.GetIsRunning()) {
+        Serial.println("RTC was not actively running, starting now");
+        rtc.SetIsRunning(true);
+    }
+
+    RtcDateTime now = rtc.GetDateTime();
+    if (now < compiled_date_time) {
+        Serial.println("RTC is older than compile time!  (Updating DateTime)");
+        rtc.SetDateTime(compiled_date_time);
+    } else if (now > compiled_date_time) {
+        Serial.println("RTC is newer than compile time. (this is expected)");
+    }
+    else if (now == compiled_date_time) {
+        Serial.println("RTC is the same as compile time! (not expected but all is fine)");
+    }
+}
+
+void setup()
+{
+  Serial.begin(9600);    // For local diagnostics
+  bt_serial.begin(9600); // Convert Bluetooth to Serial Communication
+  initRtc();
   lcd.init();
   lcd.backlight();
   pinMode(relay_pin[0], OUTPUT);
@@ -115,51 +226,53 @@ void setup() {
   pinMode(buzzer_pin, OUTPUT);
 }
 
-void loop() {
-   if(bt_serial.available()) {
-    //received_str = bt_serial.readStringUntil('\n');
-    received_str = bt_serial.readString();
-    //parseString();
-    lcd.clear();
-    lcd.clear();
-    lcd.setCursor(0,0);
-    if(received_str.equals("level0")) {
-      turnOnBuzzerAtLevel(LEVEL0);
-    } else if (received_str.equals("level1")) {
-      turnOnBuzzerAtLevel(LEVEL1);
-    } else if (received_str.equals("level2")) {
-      turnOnBuzzerAtLevel(LEVEL2);
-    } else if (received_str.equals("level3")) {
-      turnOnBuzzerAtLevel(LEVEL3);
-    }
-    lcd.println(received_str);
-    /*
-    if (module.equals(DELIVERY)) {
-      if (item.equals(DELIVERY_START)) {
-       //배달 시작에 관한  
-      } else if (item.equals(DELIVERY_END)) {
-        //배달 종료에 관한
+void loop()
+{
+  if (bt_serial.available()) {
+    received_str = bt_serial.readStringUntil('\n');
+    Serial.println(received_str);
+    parseString();  // header_module, header_item, header_value 
+                    // e.g. "buzzer, level, 1" 
+    Serial.println("header_module: " + header_module);
+    Serial.println("header_item: " + header_item);
+    Serial.println("header_value: " + header_value);
+    //1 Blocks on Delivery
+    if (header_module.equals("delivery")) {
+      //1.1 Delivery Start
+      if (header_item.equals("start")) { 
+        arrv_time = header_value.toInt();
+        lcdPrintStatus(LCDINIT);
+      }
+      //1.2 Delivery complete
+      else if (header_item.equals("end")) {
+        lcdPrintStatus(DELIVERY_END_LINE3);
+        turnOnBuzzer();
       } else {
-        Serial.println("error occurs");
+        Serial.println("error: delivery");
         return;
       }
-    } else if (module.equals(BUZZER)) { //부저 관련 블럭
-      if (item.equals(BUZZER_ONOFF)) { //부저 온오프 제어
-        if (value1.equals(BUZZER_ONOFF_ON)) {
+    //2 Blocks on Buzzer
+    } else if (header_module.equals("buzzer")) { 
+      //2.1 buzzer on/off control
+      if (header_item.equals("on/off")) { 
+        if (header_value.equals("on")) {
           turnOnBuzzer();
-        } else if (value1.equals(BUZZER_ONOFF_OFF)) {
-          digitalWrite(buzzer_pin, LOW);
+        } else if (header_value.equals("off")) {
+          pinMode(buzzer_pin, LOW);
         }
+      //2.2 Buzer volume control
+      } else if (header_item.equals("level")) {
+        setBuzzerLevel((BuzzerLevel) header_value.toInt());
+      // parsing error, "buzzer"
       } else {
         Serial.println("error: buzzer on/off");
       }
-    } else if (module.equals(LCD)) {
+    //3. Blocks on Buzzer
+    } else if (header_module.equals("motion")) {
+      lcdPrintStatus(MOTION_LINE2);
     }
-    if(received_str.equals(DELIVERY)) {
-
-    }
-    */
+  // Bluetooth Connection Error
   } else {
     Serial.println("bluetooth error");
-   }
+  }
 }
