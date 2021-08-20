@@ -249,6 +249,7 @@ void loop()
     if (header_module.equals("delivery")) {
       //1.1 Delivery Start
       if (header_item.equals("start")) { 
+        lcd.clear();
         pinMode(buzzer_pin, LOW);
         arrv_time = header_value.toInt();
         lcdPrintStatus(LCDINIT);
@@ -280,6 +281,10 @@ void loop()
     //3. Blocks on Buzzer
     } else if (header_module.equals("motion")) {
       lcdPrintStatus(MOTION_LINE2);
+    } else if (header_module.equals("standby")) {
+      pinMode(buzzer_pin, LOW);
+      lcd.clear();
+      lcdPrintStatus(TIME_NOW_LINE0);
     }
   // Bluetooth Connection Error
   } else {
