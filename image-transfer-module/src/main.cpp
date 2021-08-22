@@ -43,7 +43,7 @@ const int builtin_led = BUILTIN_LED;
 void photo2Base64(camera_fb_t *cam_fb)
 {
   photo_data.clear();
-  //photo_data.concat("data:image/jpeg;base64,"); // image file - for JSON tree
+  photo_data.concat("\\\"");
   char *input = (char *)cam_fb->buf;
   char output[base64_enc_len(3)];
 
@@ -54,7 +54,7 @@ void photo2Base64(camera_fb_t *cam_fb)
       photo_data.concat(String(output));
   }
   photo_data.concat(String(output));
-  //photo_data += "\"";
+  photo_data.concat("\\\"");
 }
 
 bool cameraInit(void)
@@ -177,7 +177,7 @@ void getPhotoThenSendToFirebase(void)
       Serial.println("ETag: " + firebase_data.ETag());
       Serial.print("VALUE: ");
       Serial.println("complete");
-      //printResult(firebase_data); //see addons/RTDBHelper.h
+      printResult(firebase_data); //see addons/RTDBHelper.h
       Serial.println("------------------------------------");
       Serial.println();
     }
@@ -248,21 +248,28 @@ void setup()
 
 void loop()
 {
-  sensor_control = Firebase.getBool(firebase_data, sensor_control_path);
-  if (sensor_control)
+  if (Firebase.getInt(firebase_data, sensor_control_path))
   {
-    //is_motion_detected = false;
-    is_motion_detected = digitalRead(motion_pin);
-    sendMotionSignalToFirebase(is_motion_detected);
-    if (is_motion_detected)
+    sensor_control = firebase_data.intData();
+    if (sensor_control)
     {
-      Serial.println("motion detected");
-      digitalWrite(builtin_led, HIGH);
-      getPhotoThenSendToFirebase();
-      digitalWrite(builtin_led, LOW);
-      delay(10000);
+      Serial.println("sensor on");
+      is_motion_detected = digitalRead(motion_pin);
+      sendMotionSignalToFirebase(is_motion_detected);
+      if (is_motion_detected)
+      {
+        Serial.println("motion detected");
+        digitalWrite(builtin_led, HIGH);
+        getPhotoThenSendToFirebase();
+        digitalWrite(builtin_led, LOW);
+        delay(10000);
+      }
+      delay(100);
     }
-    delay(100);
+  }
+  else
+  {
+    Serial.println("error: firebase");
   }
 }
 /*}***************************************************************************/
