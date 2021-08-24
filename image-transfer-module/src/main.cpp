@@ -29,7 +29,7 @@ String fuid = ""; // Firebase Unique Identifier
 boolean is_authenticated = false; // Store device authentication status
 boolean is_motion_detected = false;
 boolean is_light_detected = false;
-boolean sensor_control = false;
+String sensor_control = "false";
 int idx = 0;
 /*****************************************************************************/
 
@@ -248,10 +248,10 @@ void setup()
 
 void loop()
 {
-  if (Firebase.getInt(firebase_data, sensor_control_path))
+  if (Firebase.getString(firebase_data, sensor_control_path))
   {
-    sensor_control = firebase_data.intData();
-    if (sensor_control)
+    sensor_control = firebase_data.stringData();
+    if (sensor_control.equals("true"))
     {
       Serial.println("sensor on");
       is_motion_detected = digitalRead(motion_pin);
