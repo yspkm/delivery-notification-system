@@ -4,6 +4,7 @@
 #include <ThreeWire.h>
 #include <RtcDateTime.h>
 #include <RtcDS1302.h>
+#include <time.h>
 
 /**************************typedef *******************************************/
 typedef enum _ELcdControl
@@ -141,11 +142,15 @@ void getTimeFormStringArrv(uint16_t arrv_minute)
 {
   uint16_t min_new, hour_new;
   uint16_t hour, min, day, month, year;
+
   getTimeNow(&hour, &min, &day, &month, &year);
-  min += arrv_minute;
-  min_new = min % 60;
-  hour_new = hour + (min / 60);
-  getTimeFormString(hour_new, min_new, day, month, year);
+  min_new = (min + arrv_minute) % 60;
+  hour_new = (hour + ((min+arrv_minute) / 60)) % 24;
+
+  char *time_fstr = (char *)malloc(18 * sizeof(char));
+  sprintf(time_fstr, "%02u:%02u|", hour_new, min);
+  time_form_str = String(time_fstr);
+  free(time_fstr);
 }
 
 void lcdPrintStatus(LcdControl lcd_control)
@@ -153,7 +158,7 @@ void lcdPrintStatus(LcdControl lcd_control)
   /* LCD Display
   LCD Display Example
   NOW:08:15|2021-08-21
-  EXP:08:45|2021-08-21
+  EXP:08:45|
   MOTION DETECTED!
   DELIVERY COMPLETE!!! */
   switch (lcd_control)
