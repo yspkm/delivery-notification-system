@@ -26,10 +26,10 @@ camera_config_t cam_config;
 
 String fuid = ""; // Firebase Unique Identifier
 
+String sensor_control = "false";  // app sends boolean as string to firebase
 boolean is_authenticated = false; // Store device authentication status
 boolean is_motion_detected = false;
 boolean is_light_detected = false;
-boolean sensor_control = false;
 int idx = 0;
 /*****************************************************************************/
 
@@ -91,7 +91,7 @@ bool cameraInit(void)
     return false;
   }
   sensor_t *s = esp_camera_sensor_get();
-  s->set_framesize(s, FRAMESIZE_VGA);
+  s->set_framesize(s, FRAMESIZE_QVGA);
   return true;
 }
 
@@ -248,10 +248,10 @@ void setup()
 
 void loop()
 {
-  if (Firebase.getInt(firebase_data, sensor_control_path))
+  if (Firebase.getString(firebase_data, sensor_control_path))
   {
-    sensor_control = firebase_data.intData();
-    if (sensor_control)
+    sensor_control = firebase_data.stringData();
+    if (sensor_control.equals("true"))
     {
       Serial.println("sensor on");
       is_motion_detected = digitalRead(motion_pin);
